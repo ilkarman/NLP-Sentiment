@@ -11,7 +11,7 @@ AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'/|_@#$%^&*~`+ =<>()[]{}")
 print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
 FEATURE_LEN = 1014
-BATCH_SIZE = 50
+BATCH_SIZE = 128
 EMBED_SIZE = 16
 NUM_FILTERS = 256
 NUM_EPOCHS = 10
@@ -22,7 +22,8 @@ def download_file(url):
     local_filename = url.split('/')[-1]
 
     if os.path.isfile(local_filename):
-        print("The file %s already exist in the current directory\n" % local_filename)
+        pass
+        #print("The file %s already exist in the current directory\n" % local_filename)
     else:
         # Download
         print("downloading ...\n")
@@ -180,16 +181,16 @@ def create_crepe():
     total_filters = num_filter * len(filter_list)
     concat = mx.sym.Concat(*pooled_outputs, dim=1)
     h_pool = mx.sym.Reshape(data=concat, target_shape=(BATCH_SIZE, total_filters))
-    
+
     # dropout layer
     dropout = 0.5
     h_drop = mx.sym.Dropout(data=h_pool, p=dropout)
-    
+
     # fully connected
     cls_weight = mx.sym.Variable('cls_weight')
     cls_bias = mx.sym.Variable('cls_bias')
     fc = mx.sym.FullyConnected(data=h_drop, weight=cls_weight, bias=cls_bias, num_hidden=num_label)
-    
+
     # softmax output
     crepe = mx.sym.SoftmaxOutput(data=fc, label=input_y, name='softmax')
     return crepe
@@ -286,7 +287,10 @@ for iteration in range(NUM_EPOCHS):
         # eval on training data
         num_correct += sum(batchY == np.argmax(m.cnn_exec.outputs[0].asnumpy(), axis=1))
         num_total += len(batchY)
-
+        # every 12,800
+        if num_total % (BATCH_SIZE*100) == 0:
+            print("Processed %d" % num_total)
+            
     # end of training loop
     toc = time.time()
     train_time = toc - tic
