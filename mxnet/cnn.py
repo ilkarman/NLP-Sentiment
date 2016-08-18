@@ -11,12 +11,18 @@ AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'\"/\\|_@#$%^&*~`+ =<>()[]{}")
 print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
 FEATURE_LEN = 1014
-BATCH_SIZE = 128
-NUM_FILTERS = 64  # 256 is too big!!!
-EPOCHS = 30  # config.main.epoches = 5000
+######################################################
+# These have been scaled down due to computer limits
+BATCH_SIZE = 64  # 128 is too big!!
+NUM_FILTERS = 128  # 256 is too big!!!
+EPOCHS = 100  # config.main.epoches = 5000
+######################################################
 SD = 0.05  # stdev for gaussian distribution
 NOUTPUT = 2  # good or bad
 DATA_SHAPE = (BATCH_SIZE, 1, FEATURE_LEN, len(ALPHABET))
+
+# CPU or GPU
+ctx = mx.cpu()
 
 
 def download_file(url):
@@ -180,7 +186,6 @@ def create_crepe():
 # Get symbols and devices
 
 cnn = create_crepe()
-ctx = mx.cpu()
 
 # Set-up model
 
@@ -189,7 +194,7 @@ input_shapes = {'softmax_label': (BATCH_SIZE,),
                 'data': DATA_SHAPE}
 
 # Attach symbol to executor
-exe = cnn.simple_bind(ctx=mx.cpu(), **input_shapes)
+exe = cnn.simple_bind(ctx=ctx, **input_shapes)
 
 # Create link to data and label (to symbol)
 arg_arrays = dict(zip(cnn.list_arguments(), exe.arg_arrays))
