@@ -3,8 +3,39 @@ Attempt to replicate torch model using MXNET:
 https://github.com/zhangxiangxiao/Crepe
 
 "To run this example succesfully you will also need a NVidia GPU with at
-least 3GB of memory.
-Otherwise, you can configure the model in train/config.lua for less parameters."
+least 3GB of memory."
+
+Log from nvidia-smi:
+C:\Program Files\NVIDIA Corporation\NVSMI>nvidia-smi
+Sun Aug 21 09:57:48 2016
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 362.84                 Driver Version: 362.84                    |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name            TCC/WDDM | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|===============================+======================+======================|
+|   0  Tesla K80           TCC  | 1B5E:00:00.0     Off |                    0 |
+| N/A   50C    P0    74W / 149W |    119MiB / 11425MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
+|   1  Tesla K80           TCC  | 4486:00:00.0     Off |                    0 |
+| N/A   72C    P0    64W / 149W |    112MiB / 11425MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
+|   2  Tesla K80           TCC  | 75FD:00:00.0     Off |                    0 |
+| N/A   62C    P0   127W / 149W |   7356MiB / 11425MiB |     95%      Default |
++-------------------------------+----------------------+----------------------+
+|   3  Tesla K80           TCC  | 8933:00:00.0     Off |                    0 |
+| N/A   65C    P0    61W / 149W |    112MiB / 11425MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
++-----------------------------------------------------------------------------+
+| Processes:                                                       GPU Memory |
+|  GPU       PID  Type  Process name                               Usage      |
+|=============================================================================|
+|    0      6904    C   C:\Anaconda2\python.exe                        119MiB |
+|    1      6904    C   C:\Anaconda2\python.exe                        112MiB |
+|    2      4520    C   C:\Anaconda2\python.exe                       5268MiB |
+|    2      6904    C   C:\Anaconda2\python.exe                        112MiB |
+|    3      6904    C   C:\Anaconda2\python.exe                        112MiB |
++-----------------------------------------------------------------------------+
 """
 
 import numpy as np
@@ -62,6 +93,8 @@ def load_data_frame(infile, batch_size=128, shuffle=True):
     # Dictionary to create character vectors
     character_hash = pd.DataFrame(np.identity(len(ALPHABET)), columns=ALPHABET)
     print("finished processing data frame: %s" % infile)
+    print("data contains %d obs, each epoch will contain %d batches" % (df.shape[0], df.shape[0]//BATCH_SIZE))
+
     # Yield mini-batch amount of character vectors
     X_split = np.zeros([batch_size, 1, FEATURE_LEN, len(ALPHABET)], dtype='int')
     for ti, tx in enumerate(df.rev):
@@ -98,7 +131,6 @@ def create_crepe():
     For polarity test = 2
 
     Replicating: https://github.com/zhangxiangxiao/Crepe/blob/master/train/config.lua
-
     """
 
     input_x = mx.sym.Variable('data')  # placeholder for input
@@ -227,9 +259,9 @@ for epoch in range(EPOCHS):
         # For training only
         mod.backward()
         mod.update()
-        # Log every 12,800 batches
+        # Log every 128,000 examples (1000 * BATCH)
         t += 1
-        if t % (BATCH_SIZE*100) == 0:
+        if t % 1000 == 0:
             toc = time.time()
             train_t = toc - tic
             metric_m, metric_v = metric.get()
@@ -239,3 +271,6 @@ for epoch in range(EPOCHS):
     test_net(epoch)
 
 print("Finished in %.0f seconds" % (time.time() - tic))
+
+# To get 4 epochs a day (20 in 5 days), need to do 112,500 batches
+# in 1440 minutes -> 13 mins per 1000 batches (around 800 sec)
