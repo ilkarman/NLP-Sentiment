@@ -5,34 +5,6 @@ https://github.com/zhangxiangxiao/Crepe
 "To run this example succesfully you will also need a NVidia GPU with at
 least 3GB of memory.
 Otherwise, you can configure the model in train/config.lua for less parameters."
-
-ISSUE: mxnet requires way more than 3GB memory for the model ...
-
-ERROR:
-[01:38:23] D:\chhong\mxnet\dmlc-core\include\dmlc/logging.h:235: [01:38:23] d:\chhong\mxnet\src\storage\
-./gpu_device_storage.h:39: Check failed: e == cudaSuccess || e == cudaErrorCudartUnloading CUDA: out of memory
-Traceback (most recent call last):
-  File "C:/Users/superuser/PycharmProjects/cnn_crepe/cnn.py", line 190, in <module>
-    label_shapes=[('softmax_label', (BATCH_SIZE,))])
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\module\module.py", line 256, in bind
-    shared_group, logger=self.logger)
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\module\executor_group.py", line 95, in __init__
-    self.bind_exec(data_shapes, label_shapes, shared_group)
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\module\executor_group.py", line 123, in bind_exec
-    self.execs.append(self._bind_ith_exec(i, data_shapes, label_shapes, shared_group))
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\module\executor_group.py", line 379, in _bind_ith_exec
-    arg_arr = nd.zeros(arg_shapes[j], context, dtype=arg_types[j])
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\ndarray.py", line 688, in zeros
-    arr = empty(shape, ctx, dtype)
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\ndarray.py", line 513, in empty
-    return NDArray(handle=_new_alloc_handle(shape, ctx, False, dtype))
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\ndarray.py", line 65, in _new_alloc_handle
-    ctypes.byref(hdl)))
-  File "C:\Anaconda2\lib\site-packages\mxnet-0.7.0-py2.7.egg\mxnet\base.py", line 77, in check_call
-    raise MXNetError(py_str(_LIB.MXGetLastError()))
-mxnet.base.MXNetError: [01:38:23] d:\chhong\mxnet\src\storage\./gpu_device_storage.h:39: Check failed:
-e == cudaSuccess || e == cudaErrorCudartUnloading CUDA: out of memory
-
 """
 
 import numpy as np
@@ -43,21 +15,17 @@ import time
 import os.path
 from mxnet.io import DataBatch
 
-ctx = mx.gpu(0)  # Run on one GPU
-
+ctx = mx.gpu(0)
 AZ_ACC = "amazonsentimenik"
 AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'\"/\\|_@#$%^&*~`+ =<>()[]{}")
-
-FEATURE_LEN = 1014  # First 1014 characters
-BATCH_SIZE = 8  # 128 is too big!!
-NUM_FILTERS = 16  # 256 is too big!!!
-EPOCHS = 1000  # config.main.epoches = 5000
+FEATURE_LEN = 1014
+BATCH_SIZE = 128
+NUM_FILTERS = 256
+EPOCHS = 1000
 SD = 0.05  # std for gaussian distribution
 NOUTPUT = 2  # good or bad
 DATA_SHAPE = (BATCH_SIZE, 1, FEATURE_LEN, len(ALPHABET))
-
-print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
 
 
 def download_file(url):
@@ -140,45 +108,45 @@ def create_crepe():
 
     # 1. alphabet x 1014
     conv1 = mx.symbol.Convolution(
-        data=input_x, kernel=(7, 7), num_filter=NUM_FILTERS)
+        data=input_x, kernel=(7, 69), num_filter=NUM_FILTERS)
     relu1 = mx.symbol.Activation(
         data=conv1, act_type="relu")
     pool1 = mx.symbol.Pooling(
-        data=relu1, pool_type="max", kernel=(3, 3), stride=(1, 1))
+        data=relu1, pool_type="max", kernel=(3, 1), stride=(1, 1))
 
     # 2. 336 x 256
     conv2 = mx.symbol.Convolution(
-        data=pool1, kernel=(7, 7), num_filter=NUM_FILTERS)
+        data=pool1, kernel=(7, 1), num_filter=NUM_FILTERS)
     relu2 = mx.symbol.Activation(
         data=conv2, act_type="relu")
     pool2 = mx.symbol.Pooling(
-        data=relu2, pool_type="max", kernel=(3, 3), stride=(1, 1))
+        data=relu2, pool_type="max", kernel=(3, 1), stride=(1, 1))
 
     # 3. 110 x 256
     conv3 = mx.symbol.Convolution(
-        data=pool2, kernel=(3, 3), num_filter=NUM_FILTERS)
+        data=pool2, kernel=(3, 1), num_filter=NUM_FILTERS)
     relu3 = mx.symbol.Activation(
         data=conv3, act_type="relu")
 
     # 4. 108 x 256
     conv4 = mx.symbol.Convolution(
-        data=relu3, kernel=(3, 3), num_filter=NUM_FILTERS)
+        data=relu3, kernel=(3, 1), num_filter=NUM_FILTERS)
     relu4 = mx.symbol.Activation(
         data=conv4, act_type="relu")
 
     # 5. 106 x 256
     conv5 = mx.symbol.Convolution(
-        data=relu4, kernel=(3, 3), num_filter=NUM_FILTERS)
+        data=relu4, kernel=(3, 1), num_filter=NUM_FILTERS)
     relu5 = mx.symbol.Activation(
         data=conv5, act_type="relu")
 
     # 6. 104 x 256
     conv6 = mx.symbol.Convolution(
-        data=relu5, kernel=(3, 3), num_filter=NUM_FILTERS)
+        data=relu5, kernel=(3, 1), num_filter=NUM_FILTERS)
     relu6 = mx.symbol.Activation(
         data=conv6, act_type="relu")
     pool6 = mx.symbol.Pooling(
-        data=relu6, pool_type="max", kernel=(3, 3), stride=(1, 1))
+        data=relu6, pool_type="max", kernel=(3, 1), stride=(1, 1))
 
     # 34 x 256
     flatten = mx.symbol.Flatten(data=pool6)
@@ -237,6 +205,7 @@ def test_net(epoch):
     print("TEST(%s): %.4f" % (metric_m, metric_v))
 
 # Train
+print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
 print("started training")
 tic = time.time()
 # Evaluation metric:
@@ -258,9 +227,9 @@ for epoch in range(EPOCHS):
         # For training only
         mod.backward()
         mod.update()
-        # Log every 10 batches
+        # Log every 12,800 batches
         t += 1
-        if t % 1 == 0:
+        if t % (BATCH_SIZE*100) == 0:
             toc = time.time()
             train_t = toc - tic
             metric_m, metric_v = metric.get()
@@ -270,5 +239,3 @@ for epoch in range(EPOCHS):
     test_net(epoch)
 
 print("Finished in %.0f seconds" % (time.time() - tic))
-
-
