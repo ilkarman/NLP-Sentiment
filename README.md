@@ -46,6 +46,6 @@ Some pictures to illustrate from the slides:
 ![alt tag](pics/nlp15.png)
 ![alt tag](pics/nlp16.png)
 ![alt tag](pics/nlp17.png)
+![alt tag](pics/nlp18.png)
 ![alt tag](pics/nlp19.png)
 ![alt tag](pics/nlp20.png)
-![alt tag](pics/nlp21.png)
