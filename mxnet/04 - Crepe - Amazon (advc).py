@@ -12,7 +12,7 @@ DETAILS:
 Attempt to replicate crepe model using MXNET:
 https://github.com/zhangxiangxiao/Crepe
 
-This uses a custom asynchronous generator and keeps only 4 batches worth
+This uses a custom asynchronous generator and keeps only 10 batches worth
 of features in RAM, calculating new batches on-the-fly asynchronously.
 
 Run on 3 Tesla K80 GPUs
@@ -30,7 +30,7 @@ import Queue
 import pickle
 from mxnet.io import DataBatch
 
-ctx = [mx.gpu(1), mx.gpu(2), mx.gpu(3)]
+ctx = [mx.gpu(0), mx.gpu(1), mx.gpu(2)]
 AZ_ACC = "amazonsentimenik"
 AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'\"/\\|_@#$%^&*~`+ =<>()[]{}")
@@ -56,11 +56,11 @@ def download_file(url):
         print('saved data\n')
 
 
-def load_data_frame(infile, batch_size=128, shuffle=True):
-    # Custom method to yield mini-batches asynchronously
-    # For low RAM utilisation
-    if "train" in infile:
-        print("processing data frame: %s" % infile)
+def load_file(infile):
+    """
+    Takes .csv and returns loaded data along with labels
+    """
+    print("processing data frame: %s" % infile)
     # Get data from windows blob
     download_file('https://%s.blob.core.windows.net/%s/%s' % (AZ_ACC, AZ_CONTAINER, infile))
     # load data into dataframe
@@ -73,19 +73,32 @@ def load_data_frame(infile, batch_size=128, shuffle=True):
     # store class as nparray
     df.sentiment -= 1
     y_split = np.asarray(df.sentiment, dtype='bool')
-    # drop columns
-    df.drop(['text', 'summary', 'sentiment'], axis=1, inplace=True)
+    print("finished processing data frame: %s" % infile)
+    print("data contains %d obs, each epoch will contain %d batches" % (df.shape[0], df.shape[0]//BATCH_SIZE))
+    return df.rev, y_split
+
+
+def load_data_frame(X_data, y_data, batch_size=128, shuffle=False):
+    """
+    For low RAM this methods allows us to keep only the original data
+    in RAM and calculate the features (which are orders of magnitude bigger
+    on the fly). This keeps only 10 batches worth of features in RAM using
+    asynchronous programing and yields one DataBatch() at a time.
+    """
+
     if shuffle:
-        df = df.sample(frac=1).reset_index(drop=True)
+        idx = X_data.index
+        assert len(idx) == len(y_data)
+        rnd = np.random.permutation(idx)
+        X_data = X_data.reindex(rnd)
+        y_data = y_data[rnd]
+
     # Dictionary to create character vectors
     character_hash = pd.DataFrame(np.identity(len(ALPHABET), dtype='bool'), columns=ALPHABET)
-    if "train" in infile:
-        print("finished processing data frame: %s" % infile)
-        print("data contains %d obs, each epoch will contain %d batches" % (df.shape[0], df.shape[0]//BATCH_SIZE))
 
     # Yield processed batches asynchronously
-    # Buffy at a time
-    def async_prfetch_wrp(iterable, buffy=4):
+    # Buffy 'batches' at a time
+    def async_prefetch_wrp(iterable, buffy=10):
         poison_pill = object()
 
         def worker(q, it):
@@ -106,13 +119,13 @@ def load_data_frame(infile, batch_size=128, shuffle=True):
                 yield item
 
     # Async wrapper around
-    def async_preftch(func):
+    def async_prefetch(func):
         @functools.wraps(func)
         def wrapper(*args, **kwds):
-            return async_prfetch_wrp(func(*args, **kwds))
+            return async_prefetch_wrp(func(*args, **kwds))
         return wrapper
 
-    @async_preftch
+    @async_prefetch
     def feature_extractor(dta, val):
         # Yield mini-batch amount of character vectors
         X_split = np.zeros([batch_size, 1, FEATURE_LEN, len(ALPHABET)], dtype='bool')
@@ -127,21 +140,8 @@ def load_data_frame(infile, batch_size=128, shuffle=True):
                 X_split = np.zeros([batch_size, 1, FEATURE_LEN, len(ALPHABET)], dtype='bool')
 
     # Yield one mini-batch at a time and asynchronously process to keep 4 in queue
-    for Xsplit, ysplit in feature_extractor(df.rev, y_split):
+    for Xsplit, ysplit in feature_extractor(X_data, y_data):
         yield DataBatch(data=[Xsplit], label=[ysplit])
-
-
-def example(infile='dbpedia_train.csv'):
-    mbatch = 5
-    counter = 0
-    for batch in load_data_frame(infile, batch_size=mbatch, shuffle=False):
-        print("batch: ", batch.label[0].asnumpy().astype('int32'))
-        counter += 1
-        if counter == 4:
-            break
-    df = pd.read_csv(infile, header=None, nrows=mbatch*4)
-    train_y = df[[0]].values.ravel() - 1
-    print("actual: ", train_y)
 
 
 def create_crepe():
@@ -213,33 +213,18 @@ def create_crepe():
         data=fc3, label=input_y, name="softmax")
     return crepe
 
-# Create mx.mod.Module()
-cnn = create_crepe()
-mod = mx.mod.Module(cnn, context=ctx)
 
-# Bind shape
-mod.bind(data_shapes=[('data', DATA_SHAPE)],
-         label_shapes=[('softmax_label', (BATCH_SIZE,))])
-
-# Initialise parameters and optimiser
-mod.init_params(mx.init.Normal(sigma=SD))
-mod.init_optimizer(optimizer='sgd',
-                   optimizer_params={
-                       "learning_rate": 0.01,
-                       "momentum": 0.9,
-                       "wd": 0.00001,
-                       "rescale_grad": 1.0/BATCH_SIZE
-                   })
-
-
-def test_net(model, testfile):
+def test_net(model, X_test, y_test):
     """
     Assess performance on test-data, every epoch
     """
     metric = mx.metric.Accuracy()
-    for batch in load_data_frame(testfile, batch_size=BATCH_SIZE):
+    for batch in load_data_frame(X_data=X_test,
+                                 y_data=y_test,
+                                 batch_size=BATCH_SIZE):
         model.forward(batch, is_train=False)
         model.update_metric(metric, batch.label)
+
     metric_m, metric_v = metric.get()
     print("TEST(%s): %.4f" % (metric_m, metric_v))
 
@@ -266,6 +251,29 @@ def save_check_point(model, pre, epoch):
     pickle.dump(save_dict, open(param_name, "wb"))
     print('Saved checkpoint to \"%s\"', param_name)
 
+# TRAINING (and Testing):
+# Create mx.mod.Module()
+cnn = create_crepe()
+mod = mx.mod.Module(cnn, context=ctx)
+
+# Bind shape
+mod.bind(data_shapes=[('data', DATA_SHAPE)],
+         label_shapes=[('softmax_label', (BATCH_SIZE,))])
+
+# Initialise parameters and optimiser
+mod.init_params(mx.init.Normal(sigma=SD))
+mod.init_optimizer(optimizer='sgd',
+                   optimizer_params={
+                       "learning_rate": 0.01,
+                       "momentum": 0.9,
+                       "wd": 0.00001,
+                       "rescale_grad": 1.0/BATCH_SIZE
+                   })
+
+# Load Data
+X_train, y_train = load_file('amazon_review_polarity_train.csv')
+X_test, y_test = load_file('amazon_review_polarity_test.csv')
+
 # Train
 print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
 print("started training")
@@ -279,7 +287,8 @@ for epoch in range(EPOCHS):
     t = 0
     metric.reset()
     tic_in = time.time()
-    for batch in load_data_frame('amazon_review_polarity_train.csv',
+    for batch in load_data_frame(X_data=X_train,
+                                 y_data=y_train,
                                  batch_size=BATCH_SIZE,
                                  shuffle=True):
         # Push data forwards and update metric
@@ -302,7 +311,7 @@ for epoch in range(EPOCHS):
     print("Finished epoch %d - started testing" % epoch)
 
     # Test
-    test_net(model=mod, testfile='amazon_review_polarity_test.csv')
+    test_net(model=mod, X_test=X_test, y_test=y_test)
 
 
 print("Done. Finished in %.0f seconds" % (time.time() - tic))
