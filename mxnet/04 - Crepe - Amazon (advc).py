@@ -3,7 +3,7 @@ SUMMARY:
 Amazon pos/neg sentiment classification
 
 Accuracy: X
-Time per Epoch: 23225 seconds = 155 rev/s
+Time per Epoch: 17821 seconds = 202 rev/s
 Total time:
 Train size = 3.6M
 Test size = 400k
@@ -249,101 +249,89 @@ def save_check_point(model, pre, epoch):
     save_dict.update({('aux:%s' % k): v for k, v in model._aux_params.items()})
     param_name = '%s-%04d.pk' % (pre, epoch)
     pickle.dump(save_dict, open(param_name, "wb"))
-    print('Saved checkpoint to \"%s\"', param_name)
-
-# TRAINING (and Testing):
-# Create mx.mod.Module()
-cnn = create_crepe()
-mod = mx.mod.Module(cnn, context=ctx)
-
-# Bind shape
-mod.bind(data_shapes=[('data', DATA_SHAPE)],
-         label_shapes=[('softmax_label', (BATCH_SIZE,))])
-
-# Initialise parameters and optimiser
-mod.init_params(mx.init.Normal(sigma=SD))
-mod.init_optimizer(optimizer='sgd',
-                   optimizer_params={
-                       "learning_rate": 0.01,
-                       "momentum": 0.9,
-                       "wd": 0.00001,
-                       "rescale_grad": 1.0/BATCH_SIZE
-                   })
-
-# Load Data
-X_train, y_train = load_file('amazon_review_polarity_train.csv')
-X_test, y_test = load_file('amazon_review_polarity_test.csv')
-
-# Train
-print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
-print("started training")
-tic = time.time()
-
-# Evaluation metric:
-metric = mx.metric.Accuracy()
-
-# Train EPOCHS
-for epoch in range(EPOCHS):
-    t = 0
-    metric.reset()
-    tic_in = time.time()
-    for batch in load_data_frame(X_data=X_train,
-                                 y_data=y_train,
-                                 batch_size=BATCH_SIZE,
-                                 shuffle=True):
-        # Push data forwards and update metric
-        # For training + testing
-        mod.forward(batch, is_train=True)
-        mod.update_metric(metric, batch.label)
-        # Get weights and update
-        # For training only
-        mod.backward()
-        mod.update()
-        # Log every 10 batches = 128*16*3*10 = 61,440 rev
-        t += 1
-        if t % 10 == 0:
-            train_t = time.time() - tic_in
-            metric_m, metric_v = metric.get()
-            print("epoch: %d iter: %d metric(%s): %.4f dur: %.0f" % (epoch, t, metric_m, metric_v, train_t))
-
-    # Checkpoint
-    save_check_point(model=mod, pre='crepe_amazon_adv', epoch=epoch)
-    print("Finished epoch %d - started testing" % epoch)
-
-    # Test
-    test_net(model=mod, X_test=X_test, y_test=y_test)
+    print('Saved checkpoint to \"%s\"' % param_name)
 
 
-print("Done. Finished in %.0f seconds" % (time.time() - tic))
+def train_model():
 
-"""
-# Experiment how to adjust batch and no. GPU
-# 160*128 samples:
+    # Create mx.mod.Module()
+    cnn = create_crepe()
+    mod = mx.mod.Module(cnn, context=ctx)
 
-# One GPU, batch 128
-epoch: 0 iter: 160 metric(accuracy): 0.9893 dur: 105 -> 195 per second
-# One GPU, batch 128*4
-epoch: 0 iter: 40 metric(accuracy): 0.9340 dur: 85 -> 241 per second
-# One GPU, batch 128*8
-epoch: 0 iter: 20 metric(accuracy): 0.8749 dur: 82 -> 249 per second
-# One GPU, batch 128*16
-epoch: 0 iter: 10 metric(accuracy): 0.7866 dur: 80 ->  256 per second
+    # Bind shape
+    mod.bind(data_shapes=[('data', DATA_SHAPE)],
+             label_shapes=[('softmax_label', (BATCH_SIZE,))])
 
-# One GPU has enough RAM for 16 batches
+    # Initialise parameters and optimiser
+    mod.init_params(mx.init.Normal(sigma=SD))
+    mod.init_optimizer(optimizer='sgd',
+                       optimizer_params={
+                           "learning_rate": 0.01,
+                           "momentum": 0.9,
+                           "wd": 0.00001,
+                           "rescale_grad": 1.0/BATCH_SIZE
+                       })
 
-# 2 GPUS, batch=128*16*2=4096
-epoch: 0 iter: 10 metric(accuracy): 0.8179 dur: 152 -> 267 per second
+    # Load Data
+    X_train, y_train = load_file('amazon_review_polarity_train.csv')
+    X_test, y_test = load_file('amazon_review_polarity_test.csv')
 
-# 3 GPUs, batch=128*16*3=6144
-epoch: 0 iter: 10 metric(accuracy): 0.8195 dur: 223 -> 275 per second
+    # Train
+    print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
+    print("started training")
+    tic = time.time()
 
-# AMAZON
-epoch: 0 iter: 10 metric(accuracy): 0.4968 dur: 607
-epoch: 0 iter: 20 metric(accuracy): 0.4992 dur: 997
-epoch: 0 iter: 30 metric(accuracy): 0.4988 dur: 1390
-epoch: 0 iter: 40 metric(accuracy): 0.5001 dur: 1787
+    # Evaluation metric:
+    metric = mx.metric.Accuracy()
 
-"""
+    # Train EPOCHS
+    for epoch in range(EPOCHS):
+        t = 0
+        metric.reset()
+        tic_in = time.time()
+        for batch in load_data_frame(X_data=X_train,
+                                     y_data=y_train,
+                                     batch_size=BATCH_SIZE,
+                                     shuffle=True):
+            # Push data forwards and update metric
+            # For training + testing
+            mod.forward(batch, is_train=True)
+            mod.update_metric(metric, batch.label)
+            # Get weights and update
+            # For training only
+            mod.backward()
+            mod.update()
+            # Log every 10 batches = 128*16*3*10 = 61,440 rev
+            t += 1
+            if t % 10 == 0:
+                train_t = time.time() - tic_in
+                metric_m, metric_v = metric.get()
+                print("epoch: %d iter: %d metric(%s): %.4f dur: %.0f" % (epoch, t, metric_m, metric_v, train_t))
+
+        # Checkpoint
+        save_check_point(model=mod, pre='crepe_amazon_adv', epoch=epoch)
+        print("Finished epoch %d" % epoch)
+
+    print("Done. Finished in %.0f seconds" % (time.time() - tic))
+
+if __name__ == '__main__':
+
+    # Train to 10 epochs
+    train_model()
+
+    # Load trained and test
+    # TBD
+
+    """
+    # 3 GPU, 128*16*3 BATCH:
+    epoch: 0 iter: 10 metric(accuracy): 0.4993 dur: 307
+    epoch: 0 iter: 20 metric(accuracy): 0.5039 dur: 608
+    epoch: 0 iter: 30 metric(accuracy): 0.5077 dur: 910
+    epoch: 0 iter: 40 metric(accuracy): 0.5104 dur: 1211
+    # SPEED: 202 rev/s
+    # EPOCH: 3,600,000/202 = 17821s = 297 min = 5 hours epoch
+    # 10 EPOCHS: 50 hours = 2 days
+    """
 
 
 
