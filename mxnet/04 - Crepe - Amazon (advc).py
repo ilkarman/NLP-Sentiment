@@ -3,8 +3,8 @@ SUMMARY:
 Amazon pos/neg sentiment classification
 
 Accuracy: X
-Time per Epoch: 17821 seconds = 202 rev/s
-Total time:
+Time per Epoch: X
+Total time: X
 Train size = 3.6M
 Test size = 400k
 
@@ -15,7 +15,7 @@ https://github.com/zhangxiangxiao/Crepe
 This uses a custom asynchronous generator and keeps only 10 batches worth
 of features in RAM, calculating new batches on-the-fly asynchronously.
 
-Run on 3 Tesla K80 GPUs
+Run on 1 Tesla K80 GPU
 Peak RAM usage: 8GB (can be reduced by lowering buffer)
 """
 import numpy as np
@@ -30,12 +30,12 @@ import Queue
 import pickle
 from mxnet.io import DataBatch
 
-ctx = [mx.gpu(0), mx.gpu(1), mx.gpu(2)]
+ctx = mx.gpu(3)
 AZ_ACC = "amazonsentimenik"
 AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'\"/\\|_@#$%^&*~`+ =<>()[]{}")
 FEATURE_LEN = 1014
-BATCH_SIZE = 128*16*3
+BATCH_SIZE = 128
 NUM_FILTERS = 256
 EPOCHS = 10
 SD = 0.05  # std for gaussian distribution
@@ -133,7 +133,7 @@ def load_data_frame(X_data, y_data, batch_size=128, shuffle=False):
             chars = list(tx)
             for ci, ch in enumerate(chars):
                 if ch in ALPHABET:
-                    X_split[ti % batch_size][0][ci] = np.array(character_hash[ch])
+                    X_split[ti % batch_size][0][ci] = np.array(character_hash[ch], dtype='bool')
             # No padding -> only complete batches processed
             if (ti + 1) % batch_size == 0:
                 yield mx.nd.array(X_split), mx.nd.array(val[ti + 1 - batch_size:ti + 1])
@@ -214,21 +214,6 @@ def create_crepe():
     return crepe
 
 
-def test_net(model, X_test, y_test):
-    """
-    Assess performance on test-data, every epoch
-    """
-    metric = mx.metric.Accuracy()
-    for batch in load_data_frame(X_data=X_test,
-                                 y_data=y_test,
-                                 batch_size=BATCH_SIZE):
-        model.forward(batch, is_train=False)
-        model.update_metric(metric, batch.label)
-
-    metric_m, metric_v = metric.get()
-    print("TEST(%s): %.4f" % (metric_m, metric_v))
-
-
 def save_check_point(model, pre, epoch):
     """
     Save model each epoch, load as:
@@ -250,6 +235,45 @@ def save_check_point(model, pre, epoch):
     param_name = '%s-%04d.pk' % (pre, epoch)
     pickle.dump(save_dict, open(param_name, "wb"))
     print('Saved checkpoint to \"%s\"' % param_name)
+
+
+def load_check_point(file_name):
+
+    # Load file
+    save_dict = pickle.load(open(file_name, "rb"))
+    # Extract data from save
+    arg_params = {}
+    aux_params = {}
+    for k, v in save_dict.items():
+        tp, name = k.split(':', 1)
+        if tp == 'arg':
+            arg_params[name] = v
+        if tp == 'aux':
+            aux_params[name] = v
+
+    # Recreate model (todo: push to different function)
+    cnn = create_crepe()  # (todo: also save symbol)
+    mod = mx.mod.Module(cnn, context=ctx)
+
+    # Bind shape
+    mod.bind(data_shapes=[('data', DATA_SHAPE)],
+             label_shapes=[('softmax_label', (BATCH_SIZE,))])
+
+    # Initialise parameters and optimiser
+    mod.init_params(mx.init.Normal(sigma=SD))
+    mod.init_optimizer(optimizer='sgd',
+                       optimizer_params={
+                           "learning_rate": 0.01,
+                           "momentum": 0.9,
+                           "wd": 0.00001,
+                           "rescale_grad": 1.0/BATCH_SIZE
+                       })
+
+    # assign parameters from save
+    mod.set_params(arg_params, aux_params)
+    print('Model loaded from disk')
+
+    return mod
 
 
 def train_model():
@@ -274,7 +298,6 @@ def train_model():
 
     # Load Data
     X_train, y_train = load_file('amazon_review_polarity_train.csv')
-    X_test, y_test = load_file('amazon_review_polarity_test.csv')
 
     # Train
     print("Alphabet %d characters: " % len(ALPHABET), ALPHABET)
@@ -314,13 +337,43 @@ def train_model():
 
     print("Done. Finished in %.0f seconds" % (time.time() - tic))
 
+
+def test_model():
+
+    # Load saved model:
+    mod = load_check_point('crepe_amazon_adv-0000.pk')
+
+    # Load data
+    X_test, y_test = load_file('amazon_review_polarity_test.csv')
+
+    # Score accuracy
+    metric = mx.metric.Accuracy()
+
+    # Test batches
+    t = 0
+    tic = time.time()
+    for batch in load_data_frame(X_data=X_test,
+                                 y_data=y_test,
+                                 batch_size=BATCH_SIZE):
+        mod.forward(batch, is_train=False)
+        mod.update_metric(metric, batch.label)
+        t += 1
+        if t % 10 == 0:
+            train_t = time.time() - tic
+            metric_m, metric_v = metric.get()
+            print("Batch: %d metric(%s): %.4f dur: %.0f" % (t, metric_m, metric_v, train_t))
+
+    metric_m, metric_v = metric.get()
+    print("TEST(%s): %.4f" % (metric_m, metric_v))
+
+
 if __name__ == '__main__':
 
     # Train to 10 epochs
     train_model()
 
     # Load trained and test
-    # TBD
+    #test_model()
 
     """
     # 3 GPU, 128*16*3 BATCH:
