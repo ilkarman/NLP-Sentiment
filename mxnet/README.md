@@ -3,16 +3,21 @@
 ## Results
 
 02 - Crepe - Amazon.ipynb:
+```
 Accuracy: 0.94
 Time per Epoch: 9550 seconds = 220 rev/s
 Total time: 9550*10 = 1592 min = 26.5 hours
 Train size = 2,097,152
 Test size = 233,016
+```
 
 03 - Crepe - Dbpedia.ipynb:
 TBD
 
 04 - Crepe - Amazon (advc).ipynb:
+TBD
+
+05 - VDCNN - Amazon.ipynb:
 TBD
 
 ## LeNet - MNIST

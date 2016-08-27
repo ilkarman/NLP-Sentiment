@@ -3,8 +3,8 @@ SUMMARY:
 Amazon pos/neg sentiment classification
 
 Accuracy: X
-Time per Epoch: X
-Total time: X
+Time per Epoch: 21,629 = 166 rps
+Total time: 21,629 * 10 = 3604 min = 60 hours
 Train size = 3.6M
 Test size = 400k
 
@@ -324,9 +324,9 @@ def train_model():
             # For training only
             mod.backward()
             mod.update()
-            # Log every 10 batches = 128*16*3*10 = 61,440 rev
+            # Log every 50 batches = 128*50 = 6400
             t += 1
-            if t % 10 == 0:
+            if t % 50 == 0:
                 train_t = time.time() - tic_in
                 metric_m, metric_v = metric.get()
                 print("epoch: %d iter: %d metric(%s): %.4f dur: %.0f" % (epoch, t, metric_m, metric_v, train_t))
@@ -350,18 +350,18 @@ def test_model():
     metric = mx.metric.Accuracy()
 
     # Test batches
-    t = 0
-    tic = time.time()
+    #t = 0
+    #tic = time.time()
     for batch in load_data_frame(X_data=X_test,
                                  y_data=y_test,
                                  batch_size=BATCH_SIZE):
         mod.forward(batch, is_train=False)
         mod.update_metric(metric, batch.label)
-        t += 1
-        if t % 10 == 0:
-            train_t = time.time() - tic
-            metric_m, metric_v = metric.get()
-            print("Batch: %d metric(%s): %.4f dur: %.0f" % (t, metric_m, metric_v, train_t))
+        #t += 1
+        #if t % 50 == 0:
+        #    train_t = time.time() - tic
+        #    metric_m, metric_v = metric.get()
+        #    print("Batch: %d metric(%s): %.4f dur: %.0f" % (t, metric_m, metric_v, train_t))
 
     metric_m, metric_v = metric.get()
     print("TEST(%s): %.4f" % (metric_m, metric_v))
