@@ -2,11 +2,13 @@
 SUMMARY:
 Amazon pos/neg sentiment classification
 
-Accuracy: X
+Accuracy: 0.94
 Time per Epoch: 21,629 = 166 rps
 Total time: 21,629 * 10 = 3604 min = 60 hours
 Train size = 3.6M
 Test size = 400k
+
+This method is slower than higher-level API (166 rps vs 220 rps) ...
 
 DETAILS:
 Attempt to replicate crepe model using MXNET:
@@ -14,6 +16,9 @@ https://github.com/zhangxiangxiao/Crepe
 
 This uses a custom asynchronous generator and keeps only 10 batches worth
 of features in RAM, calculating new batches on-the-fly asynchronously.
+
+For low-level API reference see:
+https://github.com/dmlc/mxnet/blob/master/python/mxnet/module/base_module.py
 
 Run on 1 Tesla K80 GPU
 Peak RAM usage: 8GB (can be reduced by lowering buffer)
@@ -214,7 +219,7 @@ def create_crepe():
     return crepe
 
 
-def save_check_point(model, pre, epoch):
+def save_check_point(mod_arg, mod_aux, pre, epoch):
     """
     Save model each epoch, load as:
 
@@ -230,8 +235,8 @@ def save_check_point(model, pre, epoch):
             begin_epoch=n_epoch_load)
     """
 
-    save_dict = {('arg:%s' % k): v for k, v in model._arg_params.items()}
-    save_dict.update({('aux:%s' % k): v for k, v in model._aux_params.items()})
+    save_dict = {('arg:%s' % k): v for k, v in mod_arg.items()}
+    save_dict.update({('aux:%s' % k): v for k, v in mod_aux.items()})
     param_name = '%s-%04d.pk' % (pre, epoch)
     pickle.dump(save_dict, open(param_name, "wb"))
     print('Saved checkpoint to \"%s\"' % param_name)
@@ -240,6 +245,7 @@ def save_check_point(model, pre, epoch):
 def load_check_point(file_name):
 
     # Load file
+    print(file_name)
     save_dict = pickle.load(open(file_name, "rb"))
     # Extract data from save
     arg_params = {}
@@ -251,23 +257,13 @@ def load_check_point(file_name):
         if tp == 'aux':
             aux_params[name] = v
 
-    # Recreate model (todo: push to different function)
-    cnn = create_crepe()  # (todo: also save symbol)
+    # Recreate model
+    cnn = create_crepe()
     mod = mx.mod.Module(cnn, context=ctx)
 
     # Bind shape
     mod.bind(data_shapes=[('data', DATA_SHAPE)],
              label_shapes=[('softmax_label', (BATCH_SIZE,))])
-
-    # Initialise parameters and optimiser
-    mod.init_params(mx.init.Normal(sigma=SD))
-    mod.init_optimizer(optimizer='sgd',
-                       optimizer_params={
-                           "learning_rate": 0.01,
-                           "momentum": 0.9,
-                           "wd": 0.00001,
-                           "rescale_grad": 1.0/BATCH_SIZE
-                       })
 
     # assign parameters from save
     mod.set_params(arg_params, aux_params)
@@ -317,13 +313,17 @@ def train_model():
                                      batch_size=BATCH_SIZE,
                                      shuffle=True):
             # Push data forwards and update metric
-            # For training + testing
-            mod.forward(batch, is_train=True)
+            mod.forward_backward(batch)
+            mod.update()
             mod.update_metric(metric, batch.label)
+
+            # For training + testing
+            #mod.forward(batch, is_train=True)
+            #mod.update_metric(metric, batch.label)
             # Get weights and update
             # For training only
-            mod.backward()
-            mod.update()
+            #mod.backward()
+            #mod.update()
             # Log every 50 batches = 128*50 = 6400
             t += 1
             if t % 50 == 0:
@@ -332,16 +332,23 @@ def train_model():
                 print("epoch: %d iter: %d metric(%s): %.4f dur: %.0f" % (epoch, t, metric_m, metric_v, train_t))
 
         # Checkpoint
-        save_check_point(model=mod, pre='crepe_amazon_adv', epoch=epoch)
+        arg_params, aux_params = mod.get_params()
+        save_check_point(mod_arg=arg_params,
+                         mod_aux=aux_params,
+                         pre='crepe_amazon_adv',
+                         epoch=epoch)
         print("Finished epoch %d" % epoch)
 
     print("Done. Finished in %.0f seconds" % (time.time() - tic))
 
 
 def test_model():
+    """ This doesn't take too long but still seems it takes longer than
+    it should be taking ... """
 
     # Load saved model:
-    mod = load_check_point('crepe_amazon_adv-0000.pk')
+    mod = load_check_point('crepe_amazon_adv-0009.pk')
+    assert mod.binded and mod.params_initialized
 
     # Load data
     X_test, y_test = load_file('amazon_review_polarity_test.csv')
@@ -350,21 +357,15 @@ def test_model():
     metric = mx.metric.Accuracy()
 
     # Test batches
-    #t = 0
-    #tic = time.time()
     for batch in load_data_frame(X_data=X_test,
                                  y_data=y_test,
                                  batch_size=BATCH_SIZE):
+
         mod.forward(batch, is_train=False)
         mod.update_metric(metric, batch.label)
-        #t += 1
-        #if t % 50 == 0:
-        #    train_t = time.time() - tic
-        #    metric_m, metric_v = metric.get()
-        #    print("Batch: %d metric(%s): %.4f dur: %.0f" % (t, metric_m, metric_v, train_t))
 
-    metric_m, metric_v = metric.get()
-    print("TEST(%s): %.4f" % (metric_m, metric_v))
+        metric_m, metric_v = metric.get()
+        print("TEST(%s): %.4f" % (metric_m, metric_v))
 
 
 if __name__ == '__main__':
@@ -373,17 +374,33 @@ if __name__ == '__main__':
     train_model()
 
     # Load trained and test
-    #test_model()
+    test_model()
 
     """
-    # 3 GPU, 128*16*3 BATCH:
-    epoch: 0 iter: 10 metric(accuracy): 0.4993 dur: 307
-    epoch: 0 iter: 20 metric(accuracy): 0.5039 dur: 608
-    epoch: 0 iter: 30 metric(accuracy): 0.5077 dur: 910
-    epoch: 0 iter: 40 metric(accuracy): 0.5104 dur: 1211
-    # SPEED: 202 rev/s
-    # EPOCH: 3,600,000/202 = 17821s = 297 min = 5 hours epoch
-    # 10 EPOCHS: 50 hours = 2 days
+    data contains 3600000 obs, each epoch will contain 28125 batches
+    started training
+    epoch: 0 iter: 50 metric(accuracy): 0.5070 dur: 41
+    epoch: 0 iter: 100 metric(accuracy): 0.5130 dur: 80
+    epoch: 0 iter: 150 metric(accuracy): 0.5133 dur: 119
+    epoch: 0 iter: 200 metric(accuracy): 0.5118 dur: 158
+    epoch: 0 iter: 250 metric(accuracy): 0.5139 dur: 197
+    epoch: 0 iter: 300 metric(accuracy): 0.5148 dur: 236
+    epoch: 0 iter: 350 metric(accuracy): 0.5156 dur: 276
+    epoch: 0 iter: 400 metric(accuracy): 0.5162 dur: 315
+    epoch: 0 iter: 450 metric(accuracy): 0.5173 dur: 355
+    epoch: 0 iter: 500 metric(accuracy): 0.5182 dur: 394
+    ...
+    epoch: 9 iter: 27750 metric(accuracy): 0.9641 dur: 22217
+    epoch: 9 iter: 27800 metric(accuracy): 0.9641 dur: 22256
+    epoch: 9 iter: 27850 metric(accuracy): 0.9641 dur: 22296
+    epoch: 9 iter: 27900 metric(accuracy): 0.9641 dur: 22335
+    epoch: 9 iter: 27950 metric(accuracy): 0.9641 dur: 22375
+    epoch: 9 iter: 28000 metric(accuracy): 0.9641 dur: 22415
+    epoch: 9 iter: 28050 metric(accuracy): 0.9641 dur: 22455
+    epoch: 9 iter: 28100 metric(accuracy): 0.9641 dur: 22495
+    Saved checkpoint to "crepe_amazon_adv-0009.pk"
+    Finished epoch 9
+    Done. Finished in 219726 seconds
     """
 
 
