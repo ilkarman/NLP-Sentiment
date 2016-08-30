@@ -31,7 +31,7 @@ Test size = 400k
 
 05 - VDCNN - Amazon.ipynb:
 ``
-# Trying to create the final k-max pooling layer ...
+Trying to create the final k-max pooling layer ...
 class KMaxPooling(mx.operator.CustomOp):
     def forward(self, is_train, req, in_data, out_data, aux):
         # Desired (k=3):
