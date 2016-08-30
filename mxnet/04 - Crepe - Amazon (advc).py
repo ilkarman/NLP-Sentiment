@@ -103,7 +103,7 @@ def load_data_frame(X_data, y_data, batch_size=128, shuffle=False):
 
     # Yield processed batches asynchronously
     # Buffy 'batches' at a time
-    def async_prefetch_wrp(iterable, buffy=10):
+    def async_prefetch_wrp(iterable, buffy=30):
         poison_pill = object()
 
         def worker(q, it):
@@ -348,7 +348,7 @@ def test_model():
 
     # Load saved model:
     mod = load_check_point('crepe_amazon_adv-0009.pk')
-    assert mod.binded and mod.params_initialized
+    #assert mod.binded and mod.params_initialized
 
     # Load data
     X_test, y_test = load_file('amazon_review_polarity_test.csv')
@@ -371,7 +371,7 @@ def test_model():
 if __name__ == '__main__':
 
     # Train to 10 epochs
-    train_model()
+    #train_model()
 
     # Load trained and test
     test_model()
@@ -379,16 +379,26 @@ if __name__ == '__main__':
     """
     data contains 3600000 obs, each epoch will contain 28125 batches
     started training
-    epoch: 0 iter: 50 metric(accuracy): 0.5070 dur: 41
-    epoch: 0 iter: 100 metric(accuracy): 0.5130 dur: 80
-    epoch: 0 iter: 150 metric(accuracy): 0.5133 dur: 119
-    epoch: 0 iter: 200 metric(accuracy): 0.5118 dur: 158
-    epoch: 0 iter: 250 metric(accuracy): 0.5139 dur: 197
-    epoch: 0 iter: 300 metric(accuracy): 0.5148 dur: 236
-    epoch: 0 iter: 350 metric(accuracy): 0.5156 dur: 276
-    epoch: 0 iter: 400 metric(accuracy): 0.5162 dur: 315
-    epoch: 0 iter: 450 metric(accuracy): 0.5173 dur: 355
-    epoch: 0 iter: 500 metric(accuracy): 0.5182 dur: 394
+    epoch: 0 iter: 50 metric(accuracy): 0.5033 dur: 41
+    epoch: 0 iter: 100 metric(accuracy): 0.5063 dur: 79
+    epoch: 0 iter: 150 metric(accuracy): 0.5096 dur: 118
+    epoch: 0 iter: 200 metric(accuracy): 0.5127 dur: 158
+    epoch: 0 iter: 250 metric(accuracy): 0.5156 dur: 197
+    epoch: 0 iter: 300 metric(accuracy): 0.5180 dur: 235
+    epoch: 0 iter: 350 metric(accuracy): 0.5183 dur: 274
+    epoch: 0 iter: 400 metric(accuracy): 0.5191 dur: 313
+    epoch: 0 iter: 450 metric(accuracy): 0.5194 dur: 352
+    epoch: 0 iter: 500 metric(accuracy): 0.5210 dur: 391
+    epoch: 0 iter: 550 metric(accuracy): 0.5222 dur: 430
+    epoch: 0 iter: 600 metric(accuracy): 0.5221 dur: 468
+    epoch: 0 iter: 650 metric(accuracy): 0.5230 dur: 507
+    epoch: 0 iter: 700 metric(accuracy): 0.5243 dur: 546
+    epoch: 0 iter: 750 metric(accuracy): 0.5239 dur: 585
+    epoch: 0 iter: 800 metric(accuracy): 0.5249 dur: 623
+    epoch: 0 iter: 850 metric(accuracy): 0.5250 dur: 662
+    epoch: 0 iter: 900 metric(accuracy): 0.5257 dur: 700
+    epoch: 0 iter: 950 metric(accuracy): 0.5269 dur: 739
+    epoch: 0 iter: 1000 metric(accuracy): 0.5276 dur: 777
     ...
     epoch: 9 iter: 27750 metric(accuracy): 0.9641 dur: 22217
     epoch: 9 iter: 27800 metric(accuracy): 0.9641 dur: 22256
