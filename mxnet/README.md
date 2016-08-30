@@ -4,21 +4,44 @@
 
 02 - Crepe - Amazon.ipynb:
 ```
-Accuracy: 0.94
-Time per Epoch: 9550 seconds = 220 rev/s
+Accuracy: 0.942
+Time per Epoch: 9,550 seconds = 220 rev/s
 Total time: 9550*10 = 1592 min = 26.5 hours
 Train size = 2,097,152
 Test size = 233,016
 ```
 
 03 - Crepe - Dbpedia.ipynb:
-TBD
+```
+Accuracy: 0.991
+Time per Epoch: 3,403 seconds = 170 rev/s
+Total time: 33883 seconds = 564 min = 9.5 hours
+Train size = 560,000 
+Test size = 70,000
+```
 
-04 - Crepe - Amazon (advc).ipynb:
-TBD
+04 - Crepe - Amazon (advc).ipynb (generator + async):
+```
+Accuracy: 0.945
+Time per Epoch: 21,629 = 166 rev/s
+Total time: 21,629 * 10 = 3604 min = 60 hours
+Train size = 3.6M
+Test size = 400k
+```
 
 05 - VDCNN - Amazon.ipynb:
-TBD
+``
+# Trying to create the final k-max pooling layer ...
+class KMaxPooling(mx.operator.CustomOp):
+    def forward(self, is_train, req, in_data, out_data, aux):
+        # Desired (k=3):
+        # in_data = np.array([1, 2, 4, 10, 5, 3])
+        # out_data = [4, 10, 5]
+        x = in_data[0].asnumpy()
+        idx = x.argsort()[-k:]
+        idx.sort(axis=0)
+        y = x[idx]
+``
 
 ## LeNet - MNIST
 
