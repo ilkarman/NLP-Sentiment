@@ -6,6 +6,7 @@ New NLP architecture:
 1. Operate at lowest atomic representation of text (characters)
 2. Use deep-stack of local operations to learn high-level hierarchical representation
 """
+
 import numpy as np
 import pandas as pd
 import mxnet as mx
@@ -18,7 +19,7 @@ import Queue
 import pickle
 from mxnet.io import DataBatch
 
-ctx = mx.gpu(3)
+ctx = mx.gpu(0)
 AZ_ACC = "amazonsentimenik"
 AZ_CONTAINER = "textclassificationdatasets"
 ALPHABET = list("abcdefghijklmnopqrstuvwxyz0123456789-,;.!?:'\"/\\|_@#$%^&*~`+ =<>()[]{}")
@@ -28,64 +29,6 @@ EPOCHS = 10
 SD = 0.05  # std for gaussian distribution
 NOUTPUT = 2
 DATA_SHAPE = (BATCH_SIZE, 1, FEATURE_LEN, 1)
-
-
-class k_max_pool(mx.operator.CustomOp):
-
-    """
-    Origin: https://github.com/CNevd/DeepLearning-Mxnet/blob/master/DCNN/dcnn_train.py#L15
-    """
-
-    def __init__(self, k):
-        super(k_max_pool, self).__init__()
-        self.k = int(k)
-
-    def forward(self, is_train, req, in_data, out_data, aux):
-        x = in_data[0].asnumpy()
-        # assert(4 == len(x.shape))
-        ind = np.argsort(x, axis=2)
-        sorted_ind = np.sort(ind[:, :, -(self.k):, :], axis=2)
-        dim0, dim1, dim2, dim3 = sorted_ind.shape
-        self.indices_dim0 = np.arange(dim0).repeat(dim1 * dim2 * dim3)
-        self.indices_dim1 = np.transpose(
-            np.arange(dim1).repeat(dim2 * dim3).reshape((dim1 * dim2 * dim3, 1)).repeat(dim0, axis=1)).flatten()
-        self.indices_dim2 = sorted_ind.flatten()
-        self.indices_dim3 = np.transpose(
-            np.arange(dim3).repeat(dim2).reshape((dim2 * dim3, 1)).repeat(dim0 * dim1, axis=1)).flatten()
-        y = x[self.indices_dim0, self.indices_dim1, self.indices_dim2, self.indices_dim3].reshape(sorted_ind.shape)
-        self.assign(out_data[0], req[0], mx.nd.array(y))
-
-    def backward(self, req, out_grad, in_data, out_data, in_grad, aux):
-        x = out_grad[0].asnumpy()
-        y = in_data[0].asnumpy()
-        # assert(4 == len(x.shape))
-        # assert(4 == len(y.shape))
-        y[:, :, :, :] = 0
-        y[self.indices_dim0, self.indices_dim1, self.indices_dim2, self.indices_dim3] \
-            = x.reshape([x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3], ])
-        self.assign(in_grad[0], req[0], mx.nd.array(y))
-
-
-@mx.operator.register("k_max_pool")
-class k_max_poolProp(mx.operator.CustomOpProp):
-    def __init__(self, k):
-        self.k = int(k)
-        super(k_max_poolProp, self).__init__(True)
-
-    def list_argument(self):
-        return ['data']
-
-    def list_outputs(self):
-        return ['output']
-
-    def infer_shape(self, in_shape):
-        data_shape = in_shape[0]
-        assert (len(data_shape) == 4)
-        out_shape = (data_shape[0], data_shape[1], self.k, data_shape[3])
-        return [data_shape], [out_shape]
-
-    def create_operator(self, ctx, shapes, dtypes):
-        return k_max_pool(self.k)
 
 
 def download_file(url):
@@ -194,33 +137,74 @@ def load_data_frame(X_data, y_data, batch_size=128, shuffle=False):
         yield DataBatch(data=[Xsplit], label=[ysplit])
 
 
+class k_max_pool(mx.operator.CustomOp):
+
+    """
+    https://github.com/CNevd/DeepLearning-Mxnet/blob/master/DCNN/dcnn_train.py#L15
+    """
+
+    def __init__(self, k):
+        super(k_max_pool, self).__init__()
+        self.k = int(k)
+
+    def forward(self, is_train, req, in_data, out_data, aux):
+        x = in_data[0].asnumpy()
+        # assert(4 == len(x.shape))
+        ind = np.argsort(x, axis=2)
+        sorted_ind = np.sort(ind[:, :, -(self.k):, :], axis=2)
+        dim0, dim1, dim2, dim3 = sorted_ind.shape
+        self.indices_dim0 = np.arange(dim0).repeat(dim1 * dim2 * dim3)
+        self.indices_dim1 = np.transpose(
+            np.arange(dim1).repeat(dim2 * dim3).reshape((dim1 * dim2 * dim3, 1)).repeat(dim0, axis=1)).flatten()
+        self.indices_dim2 = sorted_ind.flatten()
+        self.indices_dim3 = np.transpose(
+            np.arange(dim3).repeat(dim2).reshape((dim2 * dim3, 1)).repeat(dim0 * dim1, axis=1)).flatten()
+        y = x[self.indices_dim0, self.indices_dim1, self.indices_dim2, self.indices_dim3].reshape(sorted_ind.shape)
+        self.assign(out_data[0], req[0], mx.nd.array(y))
+
+    def backward(self, req, out_grad, in_data, out_data, in_grad, aux):
+        x = out_grad[0].asnumpy()
+        y = in_data[0].asnumpy()
+        # assert(4 == len(x.shape))
+        # assert(4 == len(y.shape))
+        y[:, :, :, :] = 0
+        y[self.indices_dim0, self.indices_dim1, self.indices_dim2, self.indices_dim3] \
+            = x.reshape([x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3], ])
+        self.assign(in_grad[0], req[0], mx.nd.array(y))
+
+
+@mx.operator.register("k_max_pool")
+class k_max_poolProp(mx.operator.CustomOpProp):
+    def __init__(self, k):
+        self.k = int(k)
+        super(k_max_poolProp, self).__init__(True)
+
+    def list_argument(self):
+        return ['data']
+
+    def list_outputs(self):
+        return ['output']
+
+    def infer_shape(self, in_shape):
+        data_shape = in_shape[0]
+        assert (len(data_shape) == 4)
+        out_shape = (data_shape[0], data_shape[1], self.k, data_shape[3])
+        return [data_shape], [out_shape]
+
+    def create_operator(self, ctx, shapes, dtypes):
+        return k_max_pool(self.k)
+
+
 def create_vdcnn():
     """
-    This version contains 17 convolutional layers in the following structure (claimed
-    optimal by the paper):
-
-    First conv layer | conv block 64 | conv block 128 | conv block 256 | conv block 512
-    1 | 4 | 4 | 4 | 4 -> 4.3 million params
-
-    This version (for pool1, pool2, pool3) uses MaxPooling; with a depth of 17 these are the paper's
-    accuracies:
-
-    MaxPooling -> 100-4.41 = 95.59
-
-    To get the highest accuracy in the paper (100-4.28) = 95.72%
+    29 Convolutional Layers
 
     We want to increase the number of conv layers to 29 in the following structure:
     1 | 10 | 10 | 4 | 4 -> 4.6 million params
 
-    Also swap MaxPooling for Convolutions but with a stride of 2 (MaxPooling has 4.31% error, 0.03 more).
-
-    Note:
-    technically 3 down-sampling methods are considerd: 1. first conv layer of new block has stride 2, 2. k-max
-    where k set to halve resolution, 3. max pooling wiht kernel 3 and stride 2
+    We down-sample using convolutions with stride=2
 
     ToDo:
-    1. Need to introduce padding so that shape preserved ... we want:
-    1014, 1014/2, 1014/4, 1014/8
     2. Temporal batch norm vs. batch norm? -> "Temp batch norm applies same kind of regularization
     as batch norm, except that the activations in a mini-batch are jointly normalized over temporal
     instead of spatial locations"
@@ -231,9 +215,10 @@ def create_vdcnn():
     vocab_size = 69
     embedding_size = 16
     temp_kernel = (3, embedding_size)
-    kmax = 8
     kernel = (3, 1)
     stride = (2, 1)
+    padding = (1, 0)
+    kmax = 8
     num_filters1 = 64
     num_filters2 = 128
     num_filters3 = 256
@@ -250,127 +235,216 @@ def create_vdcnn():
 
     # Temp Conv (in: batch, 1, 1014, 16)
     conv0 = mx.symbol.Convolution(
-        data=embed_out, num_filter=num_filters1, kernel=temp_kernel)
+        data=embed_out, kernel=temp_kernel, pad=padding, num_filter=num_filters1)
+    act0 = mx.symbol.Activation(
+        data=conv0, act_type='relu')
 
     # CONVOLUTION_BLOCK (1 of 4) -> 64 FILTERS
+    # 10 Convolutional Layers
     conv11 = mx.symbol.Convolution(
-        data=conv0, kernel=kernel, num_filter=num_filters1)
+        data=act0, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm11 = mx.symbol.BatchNorm(
         data=conv11)
     act11 = mx.symbol.Activation(
         data=norm11, act_type='relu')
     conv12 = mx.symbol.Convolution(
-        data=act11, kernel=kernel, num_filter=num_filters1)
+        data=act11, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm12 = mx.symbol.BatchNorm(
         data=conv12)
     act12 = mx.symbol.Activation(
         data=norm12, act_type='relu')
+
     conv21 = mx.symbol.Convolution(
-        data=act12, kernel=kernel, num_filter=num_filters1)
+        data=act12, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm21 = mx.symbol.BatchNorm(
         data=conv21)
     act21 = mx.symbol.Activation(
         data=norm21, act_type='relu')
     conv22 = mx.symbol.Convolution(
-        data=act21, kernel=kernel, num_filter=num_filters1)
+        data=act21, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm22 = mx.symbol.BatchNorm(
         data=conv22)
     act22 = mx.symbol.Activation(
         data=norm22, act_type='relu')
 
-    pool1 = mx.symbol.Pooling(
-        data=act22, pool_type='max', kernel=kernel, stride=stride)
-
-    # CONVOLUTION_BLOCK (2 of 4) -> 128 FILTERS
     conv31 = mx.symbol.Convolution(
-        data=pool1, kernel=kernel, num_filter=num_filters2)
+        data=act22, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm31 = mx.symbol.BatchNorm(
         data=conv31)
     act31 = mx.symbol.Activation(
         data=norm31, act_type='relu')
     conv32 = mx.symbol.Convolution(
-        data=act31, kernel=kernel, num_filter=num_filters2)
+        data=act31, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm32 = mx.symbol.BatchNorm(
         data=conv32)
     act32 = mx.symbol.Activation(
         data=norm32, act_type='relu')
+
     conv41 = mx.symbol.Convolution(
-        data=act32, kernel=kernel, num_filter=num_filters2)
+        data=act32, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm41 = mx.symbol.BatchNorm(
         data=conv41)
     act41 = mx.symbol.Activation(
         data=norm41, act_type='relu')
     conv42 = mx.symbol.Convolution(
-        data=act41, kernel=kernel, num_filter=num_filters2)
+        data=act41, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm42 = mx.symbol.BatchNorm(
         data=conv42)
     act42 = mx.symbol.Activation(
         data=norm42, act_type='relu')
 
-    pool2 = mx.symbol.Pooling(
-        data=act42, pool_type='max', kernel=kernel, stride=stride)
-
-    # CONVOLUTION_BLOCK (3 of 4) -> 256 FILTERS
     conv51 = mx.symbol.Convolution(
-        data=pool2, kernel=kernel, num_filter=num_filters3)
+        data=act42, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm51 = mx.symbol.BatchNorm(
         data=conv51)
     act51 = mx.symbol.Activation(
         data=norm51, act_type='relu')
     conv52 = mx.symbol.Convolution(
-        data=act51, kernel=kernel, num_filter=num_filters3)
+        data=act51, kernel=kernel, pad=padding, num_filter=num_filters1)
     norm52 = mx.symbol.BatchNorm(
         data=conv52)
     act52 = mx.symbol.Activation(
         data=norm52, act_type='relu')
+
+    # CONVOLUTION_BLOCK (2 of 4) -> 128 FILTERS
+    # 10 Convolutional Layers
+
+    # First down-sampling
     conv61 = mx.symbol.Convolution(
-        data=act52, kernel=kernel, num_filter=num_filters3)
+        data=act52, kernel=kernel, pad=padding, stride=stride, num_filter=num_filters2)
+
     norm61 = mx.symbol.BatchNorm(
         data=conv61)
     act61 = mx.symbol.Activation(
         data=norm61, act_type='relu')
     conv62 = mx.symbol.Convolution(
-        data=act61, kernel=kernel, num_filter=num_filters3)
+        data=act61, kernel=kernel, pad=padding, num_filter=num_filters2)
     norm62 = mx.symbol.BatchNorm(
         data=conv62)
     act62 = mx.symbol.Activation(
         data=norm62, act_type='relu')
 
-    pool3 = mx.symbol.Pooling(
-        data=act62, pool_type='max', kernel=kernel, stride=stride)
-
-    # CONVOLUTION_BLOCK (4 of 4) -> 512 FILTERS
     conv71 = mx.symbol.Convolution(
-        data=pool3, kernel=kernel, num_filter=num_filters4)
+        data=act62, kernel=kernel, pad=padding, num_filter=num_filters2)
     norm71 = mx.symbol.BatchNorm(
         data=conv71)
     act71 = mx.symbol.Activation(
         data=norm71, act_type='relu')
     conv72 = mx.symbol.Convolution(
-        data=act71, kernel=kernel, num_filter=num_filters4)
+        data=act71, kernel=kernel, pad=padding, num_filter=num_filters2)
     norm72 = mx.symbol.BatchNorm(
         data=conv72)
     act72 = mx.symbol.Activation(
         data=norm72, act_type='relu')
+
     conv81 = mx.symbol.Convolution(
-        data=act72, kernel=kernel, num_filter=num_filters4)
+        data=act72, kernel=kernel, pad=padding, num_filter=num_filters2)
     norm81 = mx.symbol.BatchNorm(
         data=conv81)
     act81 = mx.symbol.Activation(
         data=norm81, act_type='relu')
     conv82 = mx.symbol.Convolution(
-        data=act81, kernel=kernel, num_filter=num_filters4)
+        data=act81, kernel=kernel, pad=padding, num_filter=num_filters2)
     norm82 = mx.symbol.BatchNorm(
         data=conv82)
     act82 = mx.symbol.Activation(
         data=norm82, act_type='relu')
 
+    conv91 = mx.symbol.Convolution(
+        data=act82, kernel=kernel, pad=padding, num_filter=num_filters2)
+    norm91 = mx.symbol.BatchNorm(
+        data=conv91)
+    act91 = mx.symbol.Activation(
+        data=norm91, act_type='relu')
+    conv92 = mx.symbol.Convolution(
+        data=act91, kernel=kernel, pad=padding, num_filter=num_filters2)
+    norm92 = mx.symbol.BatchNorm(
+        data=conv92)
+    act92 = mx.symbol.Activation(
+        data=norm92, act_type='relu')
+
+    conv101 = mx.symbol.Convolution(
+        data=act92, kernel=kernel, pad=padding, num_filter=num_filters2)
+    norm101 = mx.symbol.BatchNorm(
+        data=conv101)
+    act101 = mx.symbol.Activation(
+        data=norm101, act_type='relu')
+    conv102 = mx.symbol.Convolution(
+        data=act101, kernel=kernel, pad=padding, num_filter=num_filters2)
+    norm102 = mx.symbol.BatchNorm(
+        data=conv102)
+    act102 = mx.symbol.Activation(
+        data=norm102, act_type='relu')
+
+
+    # CONVOLUTION_BLOCK (3 of 4) -> 256 FILTERS
+    # 4 Convolutional Layers
+
+    # Second down-sampling
+    conv111 = mx.symbol.Convolution(
+        data=act102, kernel=kernel, pad=padding, stride=stride, num_filter=num_filters3)
+
+    norm111 = mx.symbol.BatchNorm(
+        data=conv111)
+    act111 = mx.symbol.Activation(
+        data=norm111, act_type='relu')
+    conv112 = mx.symbol.Convolution(
+        data=act111, kernel=kernel, pad=padding, num_filter=num_filters3)
+    norm112 = mx.symbol.BatchNorm(
+        data=conv112)
+    act112 = mx.symbol.Activation(
+        data=norm112, act_type='relu')
+
+    conv121 = mx.symbol.Convolution(
+        data=act112, kernel=kernel, pad=padding, num_filter=num_filters3)
+    norm121 = mx.symbol.BatchNorm(
+        data=conv121)
+    act121 = mx.symbol.Activation(
+        data=norm121, act_type='relu')
+    conv122 = mx.symbol.Convolution(
+        data=act121, kernel=kernel, pad=padding, num_filter=num_filters3)
+    norm122 = mx.symbol.BatchNorm(
+        data=conv122)
+    act122 = mx.symbol.Activation(
+        data=norm122, act_type='relu')
+
+    # CONVOLUTION_BLOCK (4 of 4) -> 512 FILTERS
+    # 4 Convolutional Layers
+
+    # Third down-sampling
+    conv131 = mx.symbol.Convolution(
+        data=act122, kernel=kernel, pad=padding, stride=stride, num_filter=num_filters4)
+
+    norm131 = mx.symbol.BatchNorm(
+        data=conv131)
+    act131 = mx.symbol.Activation(
+        data=norm131, act_type='relu')
+    conv132 = mx.symbol.Convolution(
+        data=act131, kernel=kernel, pad=padding, num_filter=num_filters4)
+    norm132 = mx.symbol.BatchNorm(
+        data=conv132)
+    act132 = mx.symbol.Activation(
+        data=norm132, act_type='relu')
+
+    conv141 = mx.symbol.Convolution(
+        data=act132, kernel=kernel, pad=padding, num_filter=num_filters4)
+    norm141 = mx.symbol.BatchNorm(
+        data=conv141)
+    act141 = mx.symbol.Activation(
+        data=norm141, act_type='relu')
+    conv142 = mx.symbol.Convolution(
+        data=act141, kernel=kernel, pad=padding, num_filter=num_filters4)
+    norm142 = mx.symbol.BatchNorm(
+        data=conv142)
+    act142 = mx.symbol.Activation(
+        data=norm142, act_type='relu')
+
     # K-max pooling (k=8)
-    pool4 = mx.symbol.Custom(
-        data=act82, op_type='k_max_pool', k=kmax)
+    kpool = mx.symbol.Custom(
+        data=act142, op_type='k_max_pool', k=kmax)
 
     # Flatten (dimensions * feature length * filters)
-    flatten = mx.symbol.Flatten(data=pool4)
+    flatten = mx.symbol.Flatten(data=kpool)
 
     # First fully connected
     fc1 = mx.symbol.FullyConnected(
@@ -387,6 +461,14 @@ def create_vdcnn():
         data=act_fc2, num_hidden=NOUTPUT)
     net = mx.symbol.SoftmaxOutput(
         data=fc3, label=input_y, name="softmax")
+
+    #Debug:
+    arg_shape, output_shape, aux_shape = net.infer_shape(data=(DATA_SHAPE))
+    print("Arg Shape: ", arg_shape)
+    print("Output Shape: ", output_shape)
+    print("Aux Shape: ", aux_shape)
+    print("Created network")
+
     return net
 
 
@@ -442,7 +524,7 @@ def load_check_point(file_name):
     return mod
 
 
-def train_model():
+def train_model(train_fname):
     # Create mx.mod.Module()
     cnn = create_vdcnn()
     mod = mx.mod.Module(cnn, context=ctx)
@@ -504,19 +586,16 @@ def train_model():
         arg_params, aux_params = mod.get_params()
         save_check_point(mod_arg=arg_params,
                          mod_aux=aux_params,
-                         pre='vdcnn_amazon_adv',
+                         pre=train_fname,
                          epoch=epoch)
         print("Finished epoch %d" % epoch)
 
     print("Done. Finished in %.0f seconds" % (time.time() - tic))
 
 
-def test_model():
-    """ This doesn't take too long but still seems it takes longer than
-    it should be taking ... """
-
+def test_model(test_fname):
     # Load saved model:
-    mod = load_check_point('vdcnn_amazon_adv-0009.pk')
+    mod = load_check_point(test_fname)
     # assert mod.binded and mod.params_initialized
 
     # Load data
@@ -528,7 +607,7 @@ def test_model():
     # Test batches
     for batch in load_data_frame(X_data=X_test,
                                  y_data=y_test,
-                                 batch_size=BATCH_SIZE):
+                                 batch_size=len(y_test)):
         mod.forward(batch, is_train=False)
         mod.update_metric(metric, batch.label)
 
@@ -537,8 +616,9 @@ def test_model():
 
 
 if __name__ == '__main__':
+
     # Train to 10 epochs
-    train_model()
+    train_model('v2_vdcnn_amazon_adv')
 
     # Load trained and test
-    test_model()
+    test_model('v2_vdcnn_amazon_adv-0009.pk')
